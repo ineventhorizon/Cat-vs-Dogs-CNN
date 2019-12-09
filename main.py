@@ -96,12 +96,11 @@ class DogsVSCats():
                 path = os.path.join(self.MY_TEST, f)
                 img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
                 img = cv2.resize(img, (self.IMG_SIZE, self.IMG_SIZE))
-                self.my_testdata.append(np.array(img))
-
-
+                self.my_testdata.append((np.array(img), f))
             except Exception as e:
                 pass
         np.save('my_testdata.npy', self.my_testdata)
+
 
 
 if REBUILD_DATA:
@@ -113,23 +112,22 @@ if REBUILD_TEST_DATA:
 
 training_data = np.load('training_data.npy')
 mytest_data = np.load('my_testdata.npy')
-
 #print(mytest_data.shape, training_data.shape)
 #print(mytest_data[0].shape)
-
-X_Test = torch.tensor([i for i in mytest_data]).view(-1, 50, 50)
+X_Test = torch.tensor([i[0] for i in mytest_data]).view(-1, 50, 50)
 X_Test = X_Test/255.0
-
+y_Test = [i[1] for i in mytest_data]
 #print(len(X_Test),'^LE N XTEST')
-
 #For finding fc1 input size
 #x = torch.randn(50, 50).view(-1, 1, 50, 50)
 #output = net(x)
 #print(output)
-
 #opts = net(torch.tensor(mytest_data[0]).view(-1, 1, 50, 50))
-
 if TRAIN_DATA:
+    BATCH_SIZE = 100
+    EPOCHS = 2
+    VAL_PCT = 0.1
+
     net = Net()
     print(net)
     optimizer = optim.Adam(net.parameters(), lr=0.001)
@@ -139,20 +137,17 @@ if TRAIN_DATA:
     X = X/255.0
     y = torch.Tensor([i[1] for i in training_data])
 
-    VAL_PCT = 0.1
     val_size = int(len(X)*VAL_PCT)
     print(val_size, 'Val size')
 
+    #Train data
     train_X = X[:-val_size]
     train_y = y[:-val_size]
 
+    #Validation data
     test_X = X[-val_size:]
     test_y = y[-val_size:]
-
-    print(len(train_X), len(test_X))
-
-    BATCH_SIZE = 100
-    EPOCHS = 1
+    print(len(train_X), len(test_X), 'ValidationX, TestX')
 
     for epoch in range(EPOCHS):
         for i in tqdm(range(0, len(train_X), BATCH_SIZE)):
@@ -166,7 +161,7 @@ if TRAIN_DATA:
             loss = loss_function(outputs, batch_y)
             loss.backward()
             optimizer.step()
-        print(loss)
+        print(f'Epoch {epoch} loss: {loss}')
 
     correct = 0
     total = 0
@@ -180,11 +175,10 @@ if TRAIN_DATA:
 
             if predicted_class == real_class:
                 correct += 1
-            total +=1
+            total += 1
     print(f'Accuracy {round(correct/total, 3)}')
 
     torch.save(net.state_dict(), 'mytraining.pt')
-
 elif TRAIN_DATA == False:
     net = Net()
     net.load_state_dict(torch.load('mytraining.pt'))
@@ -202,12 +196,8 @@ elif TRAIN_DATA == False:
             #print(predicted_class1, "predicteddfdd")
            # print(out, "class [0]")
             if predicted_class == 1:
-                print(f'{i} is a Dog  {out}')
+                print(f'{y_Test[i]} is a Dog  {out}')
             elif predicted_class == 0:
-                print(f'{i} is a Cat {out} ')
-#0 --> 4chong
-
-
-
-plt.imshow(mytest_data[2], cmap='gray')
-plt.show()
+                print(f'{y_Test[i]} is a Cat {out} ')
+#plt.imshow(mytest_data[0][0], cmap='gray')
+#plt.show()
