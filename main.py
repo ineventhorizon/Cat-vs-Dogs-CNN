@@ -8,14 +8,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-fig = plt.figure()
-ax1 = fig.add_subplot(1, 1, 1)
+if torch.cuda.is_available():
+    device = torch.device('cuda:0')
+    #print(device)
+    print(f'Running on {torch.cuda.get_device_name(device)}')
+    print(f'CUDA Device count: {torch.cuda.device_count()}')
+else:
+    device = torch.device('cpu')
+    print('Running on CPU')
 
 
 REBUILD_DATA = False #True, If you changed something in the data
 REBUILD_TEST_DATA = True #True, If you added new images to testing folder
-TRAIN_EXISTING_MODEL = False #If there is already a mytraining.pt in the same path True, If you want to train a new model then False
-TRAIN_DATA = False #True if you want to train the model otherwise False
+TRAIN_EXISTING_MODEL = True #If there is already a mytraining.pt in the same path True, If you want to train a new model then False
+TRAIN_DATA = True #True if you want to train the model otherwise False
+
+
 
 class Net(nn.Module):
     def __init__(self):
@@ -106,8 +114,43 @@ class DogsVSCats():
                 pass
         np.save('my_testdata.npy', self.my_testdata)
 
-print(torch.cuda.is_available())
-print(torch.cuda.get_device_name(torch.cuda.current_device()))
+def train(net):
+    optimizer = optim.Adam(net.parameters(), lr=0.001)
+    loss_function = nn.MSELoss()
+    for epoch in range(EPOCHS):
+        for i in tqdm(range(0, len(train_X), BATCH_SIZE)):
+            batch_X = train_X[i:i+BATCH_SIZE].view(-1, 1, 50, 50).to(device)
+            batch_y = train_y[i:i+BATCH_SIZE].to(device)
+
+            optimizer.zero_grad()
+
+            outputs = net(batch_X)
+            loss = loss_function(outputs, batch_y)
+            loss.backward()
+            optimizer.step()
+            #plt.plot(epoch, loss.detach().numpy())
+            #plt.show()
+
+        print(f'Epoch {epoch} loss: {loss}')
+        #torch.save(net.state_dict(), 'mytraining.pt')
+
+def validate(net):
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for i in tqdm(range(len(test_X))):
+            real_class = torch.argmax(test_y[i]).to(device)
+            net_out = net(test_X[i].view(-1, 1, 50, 50).to(device))[0]
+            #print(net_out)
+            predicted_class = torch.argmax(net_out)
+
+            if predicted_class == real_class:
+                correct += 1
+            total += 1
+    print(f'Accuracy {round(correct/total, 3)}')
+    return correct/total
+
+
 if REBUILD_DATA:
     dogvcats = DogsVSCats()
     dogvcats.make_training_data()
@@ -117,33 +160,15 @@ if REBUILD_TEST_DATA:
 
 training_data = np.load('training_data.npy', allow_pickle=True)
 mytest_data = np.load('my_testdata.npy', allow_pickle=True)
-#print(mytest_data.shape, training_data.shape)
-#print(mytest_data[0].shape)
-X_Test = torch.tensor([i[0] for i in mytest_data]).view(-1, 50, 50)
-X_Test = X_Test/255.0
-y_Test = [i[1] for i in mytest_data]
-#print(len(X_Test),'^LE N XTEST')
-#For finding fc1 input size
-#x = torch.randn(50, 50).view(-1, 1, 50, 50)
-#output = net(x)
-#print(output)
-#opts = net(torch.tensor(mytest_data[0]).view(-1, 1, 50, 50))
+
 if TRAIN_DATA:
     BATCH_SIZE = 100#The number of training examples in one forward/backward pass
-    EPOCHS = 5 #Number of forward pass and backward pass of all the training examples
-    VAL_PCT = 0.15 #Percentage of validation data out of training data
+    EPOCHS = 10 #Number of forward pass and backward pass of all the training examples
+    VAL_PCT = 0.10 #Percentage of validation data out of training data
     #Traindatasize/Batch_size iterations are required to complete 1 Epoch
 
-    net = Net()
-    if TRAIN_EXISTING_MODEL:
-        net.load_state_dict(torch.load('mytraining.pt'))
-        net.eval()
 
-    #Optimizer and loss function
-    optimizer = optim.Adam(net.parameters(), lr=0.001)
-    loss_function = nn.MSELoss()
-
-    print(net)
+    #Train tensors
     X = torch.tensor([i[0] for i in training_data]).view(-1, 50, 50)
     X = X/255.0
     y = torch.Tensor([i[1] for i in training_data])
@@ -160,44 +185,34 @@ if TRAIN_DATA:
     test_y = y[-val_size:]
     print(len(train_X), len(test_X), 'ValidationX, TestX')
 
-    for epoch in range(EPOCHS):
-        for i in tqdm(range(0, len(train_X), BATCH_SIZE)):
-            #print(i, i+BATCH_SIZE)
-            batch_X = train_X[i:i+BATCH_SIZE].view(-1, 1, 50, 50)
-            #print(batch_X.shape)
-            batch_y = train_y[i:i+BATCH_SIZE]
-            optimizer.zero_grad()
-            outputs = net(batch_X)
-            loss = loss_function(outputs, batch_y)
-            loss.backward()
-            optimizer.step()
-            #plt.plot(epoch, loss.detach().numpy())
-            #plt.show()
+    net = Net().to(device)
+    print(f'Type of conv1 weights: {net.conv1.weight.type()}')
+    print(f'Type of conv2 weights: {net.conv2.weight.type()}')
+    print(f'Type of conv3 weights: {net.conv3.weight.type()}')
+    print(f'Type of fc1 weights: {net.fc1.weight.type()}')
+    print(f'Type of fc2 weights: {net.fc2.weight.type()}')
+    if TRAIN_EXISTING_MODEL:
+        net.load_state_dict(torch.load('mytraining.pt'))
+        net.eval()
 
-        print(f'Epoch {epoch} loss: {loss}')
-        torch.save(net.state_dict(), 'mytraining.pt')
+    print(net)
 
-    correct = 0
-    total = 0
-
-    with torch.no_grad():
-        for i in tqdm(range(len(test_X))):
-            real_class = torch.argmax(test_y[i])
-            net_out = net(test_X[i].view(-1, 1, 50, 50))[0]
-            print(net_out)
-            predicted_class = torch.argmax(net_out)
-
-            if predicted_class == real_class:
-                correct += 1
-            total += 1
-    print(f'Accuracy {round(correct/total, 3)}')
+    #Train model
+    train(net)
+    #Test model
+    validate(net)
 
     torch.save(net.state_dict(), 'mytraining.pt')
 elif not TRAIN_DATA:
-    net = Net()
+    X_Test = torch.tensor([i[0] for i in mytest_data]).view(-1, 50, 50).to(device)
+    X_Test = X_Test / 255.0
+    y_Test = [i[1] for i in mytest_data]
+
+    net = Net().to(device)
     net.load_state_dict(torch.load('mytraining.pt'))
     net.eval()
     print('\n')
+
     # Argmax 0 = 1,0 Cat
     # Argmax 1 = 0,1 Dog
     with torch.no_grad():
@@ -213,5 +228,3 @@ elif not TRAIN_DATA:
                 print(f'{y_Test[i]} is a Dog  {out}')
             elif predicted_class == 0:
                 print(f'{y_Test[i]} is a Cat {out} ')
-#plt.imshow(mytest_data[0][0], cmap='gray')
-#plt.show()
