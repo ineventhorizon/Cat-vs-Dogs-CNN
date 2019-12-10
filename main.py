@@ -8,9 +8,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-REBUILD_DATA = False
-TRAIN_DATA = False
-REBUILD_TEST_DATA = True
+fig = plt.figure()
+ax1 = fig.add_subplot(1, 1, 1)
+
+
+REBUILD_DATA = False #True, If you changed something in the data
+REBUILD_TEST_DATA = True #True, If you added new images to testing folder
+TRAIN_EXISTING_MODEL = False #If there is already a mytraining.pt in the same path True, If you want to train a new model then False
+TRAIN_DATA = False #True if you want to train the model otherwise False
 
 class Net(nn.Module):
     def __init__(self):
@@ -101,8 +106,8 @@ class DogsVSCats():
                 pass
         np.save('my_testdata.npy', self.my_testdata)
 
-
-
+print(torch.cuda.is_available())
+print(torch.cuda.get_device_name(torch.cuda.current_device()))
 if REBUILD_DATA:
     dogvcats = DogsVSCats()
     dogvcats.make_training_data()
@@ -110,8 +115,8 @@ if REBUILD_TEST_DATA:
     dogvcats = DogsVSCats()
     dogvcats.make_test_data()
 
-training_data = np.load('training_data.npy')
-mytest_data = np.load('my_testdata.npy')
+training_data = np.load('training_data.npy', allow_pickle=True)
+mytest_data = np.load('my_testdata.npy', allow_pickle=True)
 #print(mytest_data.shape, training_data.shape)
 #print(mytest_data[0].shape)
 X_Test = torch.tensor([i[0] for i in mytest_data]).view(-1, 50, 50)
@@ -124,15 +129,21 @@ y_Test = [i[1] for i in mytest_data]
 #print(output)
 #opts = net(torch.tensor(mytest_data[0]).view(-1, 1, 50, 50))
 if TRAIN_DATA:
-    BATCH_SIZE = 100
-    EPOCHS = 2
-    VAL_PCT = 0.1
+    BATCH_SIZE = 100#The number of training examples in one forward/backward pass
+    EPOCHS = 5 #Number of forward pass and backward pass of all the training examples
+    VAL_PCT = 0.15 #Percentage of validation data out of training data
+    #Traindatasize/Batch_size iterations are required to complete 1 Epoch
 
     net = Net()
-    print(net)
+    if TRAIN_EXISTING_MODEL:
+        net.load_state_dict(torch.load('mytraining.pt'))
+        net.eval()
+
+    #Optimizer and loss function
     optimizer = optim.Adam(net.parameters(), lr=0.001)
     loss_function = nn.MSELoss()
 
+    print(net)
     X = torch.tensor([i[0] for i in training_data]).view(-1, 50, 50)
     X = X/255.0
     y = torch.Tensor([i[1] for i in training_data])
@@ -155,13 +166,16 @@ if TRAIN_DATA:
             batch_X = train_X[i:i+BATCH_SIZE].view(-1, 1, 50, 50)
             #print(batch_X.shape)
             batch_y = train_y[i:i+BATCH_SIZE]
-
             optimizer.zero_grad()
             outputs = net(batch_X)
             loss = loss_function(outputs, batch_y)
             loss.backward()
             optimizer.step()
+            #plt.plot(epoch, loss.detach().numpy())
+            #plt.show()
+
         print(f'Epoch {epoch} loss: {loss}')
+        torch.save(net.state_dict(), 'mytraining.pt')
 
     correct = 0
     total = 0
@@ -179,7 +193,7 @@ if TRAIN_DATA:
     print(f'Accuracy {round(correct/total, 3)}')
 
     torch.save(net.state_dict(), 'mytraining.pt')
-elif TRAIN_DATA == False:
+elif not TRAIN_DATA:
     net = Net()
     net.load_state_dict(torch.load('mytraining.pt'))
     net.eval()
